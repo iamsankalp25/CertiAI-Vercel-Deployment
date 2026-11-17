@@ -1,11 +1,30 @@
 
+import os
+import sys
 import uuid
+
 from pathlib import Path
 from datetime import datetime, timezone
 
 from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
 from PIL import Image
+
+
+# --------------------------------------------------
+# Backend path configuration
+# --------------------------------------------------
+
+BASE_DIR = Path(__file__).resolve().parent
+
+# Make backend modules available on Vercel and locally.
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
+
+
+# --------------------------------------------------
+# Import backend modules
+# --------------------------------------------------
 
 from excel_processor import (
     read_excel,
@@ -23,20 +42,19 @@ from database import (
 )
 
 
+# --------------------------------------------------
+# Flask application
+# --------------------------------------------------
+
 app = Flask(__name__)
 CORS(app)
 
-app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024  # 10 MB
+app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024
 
 
 # --------------------------------------------------
 # Folders and configuration
 # --------------------------------------------------
-
-
-BASE_DIR = Path(__file__).resolve().parent
-
-import os
 
 if os.environ.get("VERCEL"):
     STORAGE_DIR = Path("/tmp/certiai")
@@ -59,15 +77,23 @@ ALLOWED_TEMPLATES = {
     "custom",
 }
 
-ALLOWED_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg"}
+ALLOWED_IMAGE_EXTENSIONS = {
+    ".png",
+    ".jpg",
+    ".jpeg",
+}
 
-# Uploaded participant records
+
+# --------------------------------------------------
+# Temporary application state
+# --------------------------------------------------
+
 uploaded_records = []
 uploaded_batch_token = None
 
-# Currently uploaded custom template
 custom_template_path = None
 custom_template_id = None
+
 
 # Initialize database
 initialize_database()
@@ -199,7 +225,7 @@ def upload_custom_template():
         }), 400
 
     try:
-        # Verify that the uploaded file is a valid image.
+        # Verify uploaded image.
         image = Image.open(file.stream)
         image.verify()
 
@@ -221,13 +247,13 @@ def upload_custom_template():
                 "message": "Please upload a higher-resolution certificate image",
             }), 400
 
-        # Generate a unique template ID.
+        # Generate unique template ID.
         template_id = uuid.uuid4().hex
 
         filename = f"{template_id}{extension}"
         save_path = CUSTOM_TEMPLATE_FOLDER / filename
 
-        # Preserve transparency for PNG images.
+        # Preserve transparency for PNG.
         image.save(save_path)
 
         custom_template_path = save_path
@@ -242,7 +268,7 @@ def upload_custom_template():
             "height": height,
         })
 
-    except Exception as error:
+    except Exception:
         app.logger.exception("Custom template upload failed")
 
         return jsonify({
@@ -482,7 +508,7 @@ def download_certificates(batch_id):
 
 
 # --------------------------------------------------
-# Run Flask application
+# Run Flask application locally
 # --------------------------------------------------
 
 if __name__ == "__main__":
