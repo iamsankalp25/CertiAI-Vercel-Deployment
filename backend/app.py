@@ -17,7 +17,6 @@ from PIL import Image
 
 BASE_DIR = Path(__file__).resolve().parent
 
-# Make backend modules available on Vercel and locally.
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
@@ -39,15 +38,31 @@ from database import (
     get_all_certificates,
     get_certificate,
     get_connection,
+    save_template_layout,
+    get_template_layout,
 )
 
 
 # --------------------------------------------------
-# Flask application
+# Flask application and CORS
 # --------------------------------------------------
 
 app = Flask(__name__)
-CORS(app)
+
+CORS(
+    app,
+    resources={
+        r"/api/*": {
+            "origins": [
+                "https://www.web-a2z.com",
+                "https://web-a2z.com",
+            ],
+            "methods": ["GET", "POST", "OPTIONS"],
+            "allow_headers": ["Content-Type", "Authorization"],
+        }
+    },
+    supports_credentials=False,
+)
 
 app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024
 
@@ -95,7 +110,10 @@ custom_template_path = None
 custom_template_id = None
 
 
+# --------------------------------------------------
 # Initialize database
+# --------------------------------------------------
+
 initialize_database()
 
 
@@ -225,12 +243,10 @@ def upload_custom_template():
         }), 400
 
     try:
-        # Verify uploaded image.
         image = Image.open(file.stream)
         image.verify()
 
         file.stream.seek(0)
-
         image = Image.open(file.stream)
 
         if image.format not in {"PNG", "JPEG"}:
@@ -244,17 +260,24 @@ def upload_custom_template():
         if width < 500 or height < 300:
             return jsonify({
                 "success": False,
-                "message": "Please upload a higher-resolution certificate image",
+                "message": (
+                    "Please upload a higher-resolution certificate image"
+                ),
             }), 400
 
-        # Generate unique template ID.
         template_id = uuid.uuid4().hex
-
         filename = f"{template_id}{extension}"
         save_path = CUSTOM_TEMPLATE_FOLDER / filename
 
-        # Preserve transparency for PNG.
         image.save(save_path)
+
+        save_template_layout(
+            template_id=template_id,
+            filename=filename,
+            image_width=width,
+            image_height=height,
+            layout={},
+        )
 
         custom_template_path = save_path
         custom_template_id = template_id
@@ -275,6 +298,114 @@ def upload_custom_template():
             "success": False,
             "message": "Invalid or corrupted certificate image",
         }), 400
+
+
+# --------------------------------------------------
+# Save and retrieve custom template layout
+# --------------------------------------------------
+
+@app.route(
+    "/api/template-layout/<template_id>",
+    methods=["GET", "POST", "OPTIONS"],
+)
+def template_layout(template_id):
+    global custom_template_path, custom_template_id
+
+    # Handle browser CORS preflight request.
+    if request.method == "OPTIONS":
+        return "", 204
+
+    # Retrieve saved layout.
+    if request.method == "GET":
+        try:
+            template = get_template_layout(template_id)
+
+            if not template:
+                return jsonify({
+                    "success": False,
+                    "message": "Template layout not found",
+                }), 404
+
+            return jsonify({
+                "success": True,
+                "template": template,
+            }), 200
+
+        except Exception as error:
+            app.logger.exception("Template layout retrieval failed")
+
+            return jsonify({
+                "success": False,
+                "message": str(error),
+            }), 500
+
+    # Save layout.
+    if request.method == "POST":
+
+        if (
+            not custom_template_id
+            or template_id != custom_template_id
+            or not custom_template_path
+            or not custom_template_path.is_file()
+        ):
+            return jsonify({
+                "success": False,
+                "message": "Custom template not found. Please upload it again.",
+            }), 404
+
+        data = request.get_json(silent=True)
+
+        if not isinstance(data, dict):
+            return jsonify({
+                "success": False,
+                "message": "A valid JSON layout is required",
+            }), 400
+
+        layout = data.get("layout")
+
+        if not isinstance(layout, dict):
+            return jsonify({
+                "success": False,
+                "message": "Layout must be a JSON object",
+            }), 400
+
+        if len(str(layout)) > 50000:
+            return jsonify({
+                "success": False,
+                "message": "Layout data is too large",
+            }), 400
+
+        try:
+            existing_template = get_template_layout(template_id)
+
+            if not existing_template:
+                return jsonify({
+                    "success": False,
+                    "message": "Template metadata not found",
+                }), 404
+
+            save_template_layout(
+                template_id=template_id,
+                filename=existing_template["filename"],
+                image_width=existing_template["image_width"],
+                image_height=existing_template["image_height"],
+                layout=layout,
+            )
+
+            return jsonify({
+                "success": True,
+                "message": "Template layout saved successfully",
+                "template_id": template_id,
+                "layout": layout,
+            }), 200
+
+        except Exception as error:
+            app.logger.exception("Template layout save failed")
+
+            return jsonify({
+                "success": False,
+                "message": f"Could not save template layout: {str(error)}",
+            }), 500
 
 
 # --------------------------------------------------
@@ -314,8 +445,8 @@ def generate_certificates():
             "allowed_templates": sorted(ALLOWED_TEMPLATES),
         }), 400
 
-    # Check custom template availability.
     selected_custom_path = None
+    selected_custom_layout = None
 
     if template == "custom":
         requested_template_id = data.get("custom_template_id")
@@ -333,7 +464,16 @@ def generate_certificates():
 
         selected_custom_path = custom_template_path
 
-    # Validate participant records.
+        selected_template = get_template_layout(custom_template_id)
+
+        if not selected_template:
+            return jsonify({
+                "success": False,
+                "message": "Custom template layout not found",
+            }), 400
+
+        selected_custom_layout = selected_template.get("layout", {})
+
     validation_errors = validate_data(uploaded_records)
 
     if validation_errors:
@@ -349,7 +489,6 @@ def generate_certificates():
     output_folder.mkdir(parents=True, exist_ok=True)
 
     try:
-        # Step 1: Assign unique certificate IDs.
         records_with_ids = []
 
         for record in uploaded_records:
@@ -361,13 +500,13 @@ def generate_certificates():
 
             records_with_ids.append(updated_record)
 
-        # Step 2: Generate certificates.
         if template == "custom":
             zip_path, generated_files = generate_bulk_certificates(
                 records_with_ids,
                 str(output_folder),
                 template="custom",
                 custom_template_path=str(selected_custom_path),
+                custom_template_layout=selected_custom_layout,
             )
         else:
             zip_path, generated_files = generate_bulk_certificates(
@@ -381,7 +520,6 @@ def generate_certificates():
                 "Not all certificates were generated"
             )
 
-        # Step 3: Save records to SQLite.
         with get_connection() as connection:
             for record in records_with_ids:
                 connection.execute(
