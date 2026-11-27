@@ -6,16 +6,23 @@ import uuid
 from pathlib import Path
 from datetime import datetime, timezone
 
-from flask import Flask, request, jsonify, send_file
+from flask import (
+    Flask,
+    request,
+    jsonify,
+    send_file,
+    send_from_directory,
+)
 from flask_cors import CORS
 from PIL import Image
 
 
 # --------------------------------------------------
-# Backend path configuration
+# Backend and frontend paths
 # --------------------------------------------------
 
 BASE_DIR = Path(__file__).resolve().parent
+FRONTEND_DIR = BASE_DIR.parent / "frontend"
 
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
@@ -59,13 +66,13 @@ CORS(
                 "http://127.0.0.1:5500",
                 "http://localhost:5500",
                 "http://127.0.0.1:5501",
-                "http://localhost:5501"
+                "http://localhost:5501",
             ],
             "methods": ["GET", "POST", "OPTIONS"],
             "allow_headers": ["Content-Type", "Authorization"],
-            "supports_credentials": False
+            "supports_credentials": False,
         }
-    }
+    },
 )
 
 app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024
@@ -122,15 +129,36 @@ initialize_database()
 
 
 # --------------------------------------------------
-# Home route
+# Serve frontend from Flask
 # --------------------------------------------------
 
 @app.route("/")
 def home():
-    return jsonify({
-        "success": True,
-        "message": "CertiAI Backend is running",
-    })
+    if not FRONTEND_DIR.is_dir():
+        return jsonify({
+            "success": False,
+            "message": "Frontend folder not found",
+        }), 500
+
+    return send_from_directory(FRONTEND_DIR, "index.html")
+
+
+@app.route("/<path:filename>")
+def serve_frontend(filename):
+    allowed_files = {
+        "index.html",
+        "script.js",
+        "style.css",
+        "verify.html",
+    }
+
+    if filename not in allowed_files:
+        return jsonify({
+            "success": False,
+            "message": "File not found",
+        }), 404
+
+    return send_from_directory(FRONTEND_DIR, filename)
 
 
 # --------------------------------------------------
@@ -315,11 +343,9 @@ def upload_custom_template():
 def template_layout(template_id):
     global custom_template_path, custom_template_id
 
-    # Handle browser CORS preflight request.
     if request.method == "OPTIONS":
         return "", 204
 
-    # Retrieve saved layout.
     if request.method == "GET":
         try:
             template = get_template_layout(template_id)
@@ -343,7 +369,6 @@ def template_layout(template_id):
                 "message": str(error),
             }), 500
 
-    # Save layout.
     if request.method == "POST":
 
         if (
@@ -404,7 +429,7 @@ def template_layout(template_id):
             }), 200
 
         except Exception as error:
-            app.logger.exception("Template layout save failed")
+            app.logger.exception("Custom template layout save failed")
 
             return jsonify({
                 "success": False,

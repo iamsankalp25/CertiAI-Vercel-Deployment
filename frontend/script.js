@@ -1,4 +1,9 @@
-const API_URL = "https://certiai-backend.onrender.com";
+const API_URL =
+    (window.location.hostname === "127.0.0.1" ||
+     window.location.hostname === "localhost") &&
+    window.location.port !== "5000"
+        ? "http://127.0.0.1:5000"
+        : window.location.origin;
 const fileInput = document.getElementById("fileInput");
 const uploadArea = document.getElementById("uploadArea");
 const fileName = document.getElementById("fileName");
