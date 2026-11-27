@@ -63,6 +63,7 @@ CORS(
             "origins": [
                 "https://www.web-a2z.com",
                 "https://web-a2z.com",
+                "null",
             ],
             "methods": ["GET", "POST", "OPTIONS"],
             "allow_headers": ["Content-Type", "Authorization"],
