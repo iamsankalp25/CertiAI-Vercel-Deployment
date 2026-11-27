@@ -63,14 +63,9 @@ CORS(
             "origins": [
                 "https://www.web-a2z.com",
                 "https://web-a2z.com",
-                "http://127.0.0.1:5500",
-                "http://localhost:5500",
-                "http://127.0.0.1:5501",
-                "http://localhost:5501",
             ],
             "methods": ["GET", "POST", "OPTIONS"],
             "allow_headers": ["Content-Type", "Authorization"],
-            "supports_credentials": False,
         }
     },
 )
