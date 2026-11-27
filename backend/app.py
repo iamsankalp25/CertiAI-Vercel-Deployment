@@ -62,7 +62,8 @@ CORS(
                 "http://localhost:5501"
             ],
             "methods": ["GET", "POST", "OPTIONS"],
-            "allow_headers": ["Content-Type", "Authorization"]
+            "allow_headers": ["Content-Type", "Authorization"],
+            "supports_credentials": False
         }
     }
 )
