@@ -1,0 +1,31 @@
+
+# Python virtual environments
+venv/
+.venv/
+backend/venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Environment variables and secrets
+.env
+.env.*
+
+# Uploaded and generated files
+backend/uploads/*
+backend/generated/*
+backend/custom_templates/*
+
+# Keep placeholder files
+!backend/uploads/.gitkeep
+!backend/generated/.gitkeep
+!backend/custom_templates/.gitkeep
+
+# Local databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Test files
+test_participants.xlsx
