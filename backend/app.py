@@ -17,9 +17,9 @@ from flask_cors import CORS
 from PIL import Image
 
 
-# --------------------------------------------------
-# Backend and frontend paths
-# --------------------------------------------------
+# ==================================================
+# 1. PATH CONFIGURATION
+# ==================================================
 
 BASE_DIR = Path(__file__).resolve().parent
 FRONTEND_DIR = BASE_DIR.parent / "frontend"
@@ -28,9 +28,9 @@ if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
 
-# --------------------------------------------------
-# Import backend modules
-# --------------------------------------------------
+# ==================================================
+# 2. IMPORT BACKEND MODULES
+# ==================================================
 
 from excel_processor import (
     read_excel,
@@ -50,9 +50,9 @@ from database import (
 )
 
 
-# --------------------------------------------------
-# Flask application and CORS
-# --------------------------------------------------
+# ==================================================
+# 3. FLASK APPLICATION AND CORS
+# ==================================================
 
 app = Flask(__name__)
 
@@ -78,9 +78,9 @@ CORS(
 app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024
 
 
-# --------------------------------------------------
-# Folders and configuration
-# --------------------------------------------------
+# ==================================================
+# 4. STORAGE FOLDERS
+# ==================================================
 
 if os.environ.get("VERCEL"):
     STORAGE_DIR = Path("/tmp/certiai")
@@ -96,6 +96,10 @@ GENERATED_FOLDER.mkdir(parents=True, exist_ok=True)
 CUSTOM_TEMPLATE_FOLDER.mkdir(parents=True, exist_ok=True)
 
 
+# ==================================================
+# 5. ALLOWED FILES AND TEMPLATES
+# ==================================================
+
 ALLOWED_TEMPLATES = {
     "classic",
     "modern",
@@ -110,9 +114,9 @@ ALLOWED_IMAGE_EXTENSIONS = {
 }
 
 
-# --------------------------------------------------
-# Temporary application state
-# --------------------------------------------------
+# ==================================================
+# 6. TEMPORARY APPLICATION STATE
+# ==================================================
 
 uploaded_records = []
 uploaded_batch_token = None
@@ -121,30 +125,43 @@ custom_template_path = None
 custom_template_id = None
 
 
-# --------------------------------------------------
-# Initialize database
-# --------------------------------------------------
+# ==================================================
+# 7. DATABASE INITIALIZATION
+# ==================================================
 
 initialize_database()
 
 
-# --------------------------------------------------
-# Serve frontend from Flask
-# --------------------------------------------------
+# ==================================================
+# 8. SERVE FRONTEND
+# ==================================================
 
-@app.route("/")
+@app.route("/", methods=["GET"])
 def home():
+
     if not FRONTEND_DIR.is_dir():
         return jsonify({
             "success": False,
             "message": "Frontend folder not found",
+            "expected_path": str(FRONTEND_DIR),
         }), 500
 
-    return send_from_directory(FRONTEND_DIR, "index.html")
+    if not (FRONTEND_DIR / "index.html").is_file():
+        return jsonify({
+            "success": False,
+            "message": "Frontend index.html not found",
+            "expected_path": str(FRONTEND_DIR / "index.html"),
+        }), 404
+
+    return send_from_directory(
+        str(FRONTEND_DIR),
+        "index.html",
+    )
 
 
-@app.route("/<path:filename>")
+@app.route("/<path:filename>", methods=["GET"])
 def serve_frontend(filename):
+
     allowed_files = {
         "index.html",
         "script.js",
@@ -158,27 +175,78 @@ def serve_frontend(filename):
             "message": "File not found",
         }), 404
 
-    return send_from_directory(FRONTEND_DIR, filename)
+    file_path = FRONTEND_DIR / filename
+
+    if not file_path.is_file():
+        return jsonify({
+            "success": False,
+            "message": f"{filename} not found in frontend folder",
+        }), 404
+
+    return send_from_directory(
+        str(FRONTEND_DIR),
+        filename,
+    )
 
 
-# --------------------------------------------------
-# Health check
-# --------------------------------------------------
+# ==================================================
+# 9. FRONTEND DIAGNOSTIC ROUTE
+# ==================================================
+
+@app.route("/api/debug-frontend", methods=["GET"])
+def debug_frontend():
+
+    frontend_exists = FRONTEND_DIR.is_dir()
+
+    files = []
+
+    if frontend_exists:
+        files = sorted([
+            file.name
+            for file in FRONTEND_DIR.iterdir()
+            if file.is_file()
+        ])
+
+    return jsonify({
+        "success": True,
+        "frontend_path": str(FRONTEND_DIR),
+        "frontend_exists": frontend_exists,
+        "index_exists": (
+            FRONTEND_DIR / "index.html"
+        ).is_file(),
+        "script_exists": (
+            FRONTEND_DIR / "script.js"
+        ).is_file(),
+        "style_exists": (
+            FRONTEND_DIR / "style.css"
+        ).is_file(),
+        "verify_exists": (
+            FRONTEND_DIR / "verify.html"
+        ).is_file(),
+        "files": files,
+    })
+
+
+# ==================================================
+# 10. HEALTH CHECK
+# ==================================================
 
 @app.route("/api/health", methods=["GET"])
 def health():
+
     return jsonify({
         "success": True,
         "status": "running",
     })
 
 
-# --------------------------------------------------
-# Upload Excel or CSV
-# --------------------------------------------------
+# ==================================================
+# 11. UPLOAD EXCEL OR CSV
+# ==================================================
 
 @app.route("/api/upload-excel", methods=["POST"])
 def upload_excel():
+
     global uploaded_records, uploaded_batch_token
 
     if "file" not in request.files:
@@ -207,6 +275,7 @@ def upload_excel():
     file_path = UPLOAD_FOLDER / unique_name
 
     try:
+
         file.save(file_path)
 
         records = read_excel(str(file_path))
@@ -236,6 +305,7 @@ def upload_excel():
         })
 
     except Exception as error:
+
         app.logger.exception("Excel processing failed")
 
         return jsonify({
@@ -244,12 +314,13 @@ def upload_excel():
         }), 500
 
 
-# --------------------------------------------------
-# Upload custom certificate image
-# --------------------------------------------------
+# ==================================================
+# 12. UPLOAD CUSTOM CERTIFICATE IMAGE
+# ==================================================
 
 @app.route("/api/upload-template", methods=["POST"])
 def upload_custom_template():
+
     global custom_template_path, custom_template_id
 
     if "file" not in request.files:
@@ -275,6 +346,7 @@ def upload_custom_template():
         }), 400
 
     try:
+
         image = Image.open(file.stream)
         image.verify()
 
@@ -324,6 +396,7 @@ def upload_custom_template():
         })
 
     except Exception:
+
         app.logger.exception("Custom template upload failed")
 
         return jsonify({
@@ -332,22 +405,25 @@ def upload_custom_template():
         }), 400
 
 
-# --------------------------------------------------
-# Save and retrieve custom template layout
-# --------------------------------------------------
+# ==================================================
+# 13. SAVE AND RETRIEVE CUSTOM TEMPLATE LAYOUT
+# ==================================================
 
 @app.route(
     "/api/template-layout/<template_id>",
     methods=["GET", "POST", "OPTIONS"],
 )
 def template_layout(template_id):
+
     global custom_template_path, custom_template_id
 
     if request.method == "OPTIONS":
         return "", 204
 
     if request.method == "GET":
+
         try:
+
             template = get_template_layout(template_id)
 
             if not template:
@@ -362,6 +438,7 @@ def template_layout(template_id):
             }), 200
 
         except Exception as error:
+
             app.logger.exception("Template layout retrieval failed")
 
             return jsonify({
@@ -405,6 +482,7 @@ def template_layout(template_id):
             }), 400
 
         try:
+
             existing_template = get_template_layout(template_id)
 
             if not existing_template:
@@ -429,6 +507,7 @@ def template_layout(template_id):
             }), 200
 
         except Exception as error:
+
             app.logger.exception("Custom template layout save failed")
 
             return jsonify({
@@ -437,12 +516,13 @@ def template_layout(template_id):
             }), 500
 
 
-# --------------------------------------------------
-# Generate certificates and save to SQLite
-# --------------------------------------------------
+# ==================================================
+# 14. GENERATE CERTIFICATES AND SAVE TO SQLITE
+# ==================================================
 
 @app.route("/api/generate-certificates", methods=["POST"])
 def generate_certificates():
+
     global uploaded_records, uploaded_batch_token
     global custom_template_path, custom_template_id
 
@@ -478,6 +558,7 @@ def generate_certificates():
     selected_custom_layout = None
 
     if template == "custom":
+
         requested_template_id = data.get("custom_template_id")
 
         if (
@@ -518,9 +599,11 @@ def generate_certificates():
     output_folder.mkdir(parents=True, exist_ok=True)
 
     try:
+
         records_with_ids = []
 
         for record in uploaded_records:
+
             updated_record = dict(record)
 
             updated_record["certificate_id"] = (
@@ -530,6 +613,7 @@ def generate_certificates():
             records_with_ids.append(updated_record)
 
         if template == "custom":
+
             zip_path, generated_files = generate_bulk_certificates(
                 records_with_ids,
                 str(output_folder),
@@ -537,7 +621,9 @@ def generate_certificates():
                 custom_template_path=str(selected_custom_path),
                 custom_template_layout=selected_custom_layout,
             )
+
         else:
+
             zip_path, generated_files = generate_bulk_certificates(
                 records_with_ids,
                 str(output_folder),
@@ -550,7 +636,9 @@ def generate_certificates():
             )
 
         with get_connection() as connection:
+
             for record in records_with_ids:
+
                 connection.execute(
                     """
                     INSERT INTO certificates (
@@ -587,6 +675,7 @@ def generate_certificates():
         })
 
     except Exception as error:
+
         app.logger.exception("Certificate generation failed")
 
         return jsonify({
@@ -597,13 +686,15 @@ def generate_certificates():
         }), 500
 
 
-# --------------------------------------------------
-# List saved certificates
-# --------------------------------------------------
+# ==================================================
+# 15. LIST SAVED CERTIFICATES
+# ==================================================
 
 @app.route("/api/certificates", methods=["GET"])
 def list_certificates():
+
     try:
+
         records = get_all_certificates()
 
         return jsonify({
@@ -613,6 +704,7 @@ def list_certificates():
         })
 
     except Exception as error:
+
         app.logger.exception("Could not retrieve certificates")
 
         return jsonify({
@@ -621,12 +713,13 @@ def list_certificates():
         }), 500
 
 
-# --------------------------------------------------
-# Verify certificate by ID
-# --------------------------------------------------
+# ==================================================
+# 16. VERIFY CERTIFICATE BY ID
+# ==================================================
 
 @app.route("/api/verify/<certificate_id>", methods=["GET"])
 def verify_certificate(certificate_id):
+
     record = get_certificate(certificate_id)
 
     if record is None:
@@ -643,9 +736,9 @@ def verify_certificate(certificate_id):
     })
 
 
-# --------------------------------------------------
-# Download generated certificates ZIP
-# --------------------------------------------------
+# ==================================================
+# 17. DOWNLOAD GENERATED CERTIFICATES ZIP
+# ==================================================
 
 @app.route("/api/download/<batch_id>", methods=["GET"])
 def download_certificates(batch_id):
@@ -674,11 +767,12 @@ def download_certificates(batch_id):
     )
 
 
-# --------------------------------------------------
-# Run Flask application locally
-# --------------------------------------------------
+# ==================================================
+# 18. RUN FLASK APPLICATION LOCALLY
+# ==================================================
 
 if __name__ == "__main__":
+
     app.run(
         host="127.0.0.1",
         port=5000,
